@@ -1,0 +1,55 @@
+# Hermes Agent Configuration
+# Default: local Ollama | Fallbacks: Opencode Zen API, Google, OpenRouter
+
+model:
+  default: ollama/gemma4:8b
+  provider: ollama
+  base_url: http://ollama:11434
+  context_length: 32768
+
+providers:
+  ollama:
+    request_timeout_seconds: 300
+    stale_timeout_seconds: 300
+    base_url: http://ollama:11434
+    models:
+      ollama/gemma4:8b:
+        timeout_seconds: 300
+      ollama/qwen2.5:3b:
+        timeout_seconds: 300
+
+  opencode-zen:
+    request_timeout_seconds: 300
+    stale_timeout_seconds: 300
+    models:
+      openai/gpt-oss-120b:
+        timeout_seconds: 300
+        stale_timeout_seconds: 300
+
+  google:
+    request_timeout_seconds: 300
+    stale_timeout_seconds: 300
+
+  openrouter:
+    request_timeout_seconds: 300
+    stale_timeout_seconds: 300
+
+compression:
+  enabled: true
+  threshold: 0.50
+
+terminal:
+  backend: local
+  timeout: 180
+
+display:
+  skin: catppuccin
+  theme: midnight
+
+auxiliary:
+  compression:
+    provider: opencode-zen
+    context_length: 64000
+  vision:
+    provider: opencode-zen
+    context_length: 64000

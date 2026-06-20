@@ -1,10 +1,13 @@
-# OpenClaw Podman Stack (Gemma 4 8B Optimized)
+# Hermes Agent + Ollama (local models) + Opencode Zen API
 # Run: podman-compose up -d
 
 services:
   ollama:
-    image: openclaw-ollama:latest
-    container_name: openclaw-ollama
+    image: hermes-ollama:latest
+    build:
+      context: .
+      dockerfile: ollama.Dockerfile
+    container_name: hermes-ollama
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
@@ -27,64 +30,48 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    networks:
+      - hermes-net
 
-  openclaw:
-    image: ghcr.io/openclaw/openclaw:latest
-    container_name: openclaw-gateway
-    ports:
-      - "${OPENCLAW_PORT:-18789}:18789"
-      - "${OPENCLAW_WEB_PORT:-18790}:18790"
-    volumes:
-      - openclaw_data:/home/node/.openclaw
-      - ./SOUL.md:/home/node/.openclaw/SOUL.md:ro
-      - ./USER.md:/home/node/.openclaw/USER.md:ro
-      - ./PLAYBOOK.md:/home/node/.openclaw/PLAYBOOK.md:ro
-      - ./MEMORY.md:/home/node/.openclaw/MEMORY.md:ro
-    env_file:
-      - .env
-    environment:
-      - OPENCLAW_OLLAMA_URL=http://ollama:11434
+  hermes-gateway:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    # read_only: true
-    tmpfs:
-      - /tmp
+    command: gateway run
     depends_on:
       ollama:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: ${OPENCLAW_MEM_LIMIT:-4G}
-        reservations:
-          memory: ${OPENCLAW_MEM_RESERVE:-512M}
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:18789/healthz || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    volumes:
+      - ./hermes-data:/opt/data
+      - ./hermes-config:/config:ro
+    ports:
+      - "127.0.0.1:9119:9119"
+    env_file:
+      - .env.ollama
+      - ./hermes-config/.env.hermes
+    networks:
+      - hermes-net
+
+  hermes-chat:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes-chat
+    restart: unless-stopped
+    command: sleep infinity
+    depends_on:
+      - hermes-gateway
+    volumes:
+      - ./hermes-data:/opt/data
+    env_file:
+      - .env.ollama
+      - ./hermes-config/.env.hermes
+    networks:
+      - hermes-net
+    stdin_open: true
+    tty: true
 
 networks:
-  default:
-    name: openclaw-network
+  hermes-net:
     driver: bridge
 
 volumes:
-  openclaw_data:
-    name: openclaw_storage
   ollama_data:
-    name: ollama_storage
-
-

@@ -1,10 +1,11 @@
 #!/bin/bash
-# OpenClaw Runner Script - User chooses Docker or Podman
+# Hermes Agent Runner — Docker or Podman
 
 set -e
 
-PROJECT_NAME="openclaw"
+PROJECT_NAME="hermes"
 COMPOSE_FILE="docker-compose.yml"
+FORCE_RUNTIME=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -23,7 +24,7 @@ wait_for_health() {
     local url=$2
     local max_attempts=${3:-30}
     local attempt=1
-    
+
     echo -n "  Waiting for $service..."
     while [ $attempt -le $max_attempts ]; do
         if curl -sf "$url" >/dev/null 2>&1; then
@@ -76,7 +77,33 @@ install_podman() {
     log_info "Podman installed successfully!"
 }
 
+set_forced_runtime() {
+    local runtime="$1"
+    case "$runtime" in
+        docker)
+            RUNTIME="docker"
+            COMPOSE_FILE="docker-compose.yml"
+            COMPOSE_CMD="docker compose"
+            ;;
+        podman)
+            RUNTIME="podman"
+            COMPOSE_FILE="podman-compose.yml"
+            if podman compose version &> /dev/null; then
+                COMPOSE_CMD="podman compose"
+            else
+                COMPOSE_CMD="podman-compose"
+            fi
+            ;;
+    esac
+    log_info "Using $RUNTIME"
+}
+
 detect_runtime() {
+    if [[ -n "$FORCE_RUNTIME" ]]; then
+        set_forced_runtime "$FORCE_RUNTIME"
+        return
+    fi
+
     RUNTIME=""
     COMPOSE_FILE="docker-compose.yml"
 
@@ -135,14 +162,14 @@ choose_runtime() {
     fi
 
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║     Choose Container Runtime             ║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   1) Podman (Recommended - Free, native)"
-    echo -e "${CYAN}║${NC}   2) Docker (Requires installation)"
-    echo -e "${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────${NC}"
+    echo -e "  Choose Container Runtime"
+    echo -e "${CYAN}────────────────────────────────────────────${NC}"
+    echo ""
+    echo "   1) Podman (Recommended - Free, native)"
+    echo "   2) Docker (Requires installation)"
+    echo ""
+    echo -e "${CYAN}────────────────────────────────────────────${NC}"
     echo ""
 
     read -p "Enter your choice [1-2]: " choice
@@ -171,7 +198,7 @@ choose_runtime() {
                         COMPOSE_CMD="podman-compose"
                     fi
                 else
-                    log_error "Podman is required to run OpenClaw"
+                    log_error "Podman is required to run Hermes"
                     exit 1
                 fi
             fi
@@ -205,12 +232,30 @@ choose_runtime() {
 }
 
 check_env() {
-    if [ ! -f .env ]; then
-        if [ -f .env.example ]; then
-            cp .env.example .env
-            log_warn ".env created from .env.example"
-            log_warn "Edit .env with your API keys"
+    if [ ! -f .env.ollama ]; then
+        if [ -f sample.env.ollama ]; then
+            cp sample.env.ollama .env.ollama
+            log_warn ".env.ollama created from sample.env.ollama"
         fi
+    fi
+    if [ ! -f hermes-config/.env.hermes ]; then
+        if [ -f hermes-config/sample.env.hermes ]; then
+            cp hermes-config/sample.env.hermes hermes-config/.env.hermes
+            log_warn "hermes-config/.env.hermes created from hermes-config/sample.env.hermes"
+        fi
+    fi
+    if [ ! -f hermes-config/.env ]; then
+        if [ -f hermes-config/.env.hermes ]; then
+            cp hermes-config/.env.hermes hermes-config/.env
+            log_warn "hermes-config/.env created from hermes-config/.env.hermes"
+            log_warn "Edit hermes-config/.env.hermes and hermes-config/.env with your actual API keys"
+        fi
+    fi
+}
+
+setup_config() {
+    if [ ! -d hermes-config ]; then
+        mkdir -p hermes-config
     fi
 }
 
@@ -222,41 +267,44 @@ require_runtime() {
     fi
 }
 
+# Parse optional runtime argument ($2 = "docker" or "podman")
+if [[ $# -ge 2 ]]; then
+    case "$2" in
+        docker|podman) FORCE_RUNTIME="$2" ;;
+    esac
+fi
+
 case "${1:-help}" in
     start|install)
         detect_runtime
         require_runtime
         check_env
+        setup_config
         log_info "Building custom Ollama image..."
-        podman build -t openclaw-ollama:latest -f ollama.Dockerfile . 2>/dev/null || log_warn "Image build skipped (already exists)"
-        log_info "Pulling OpenClaw image..."
-        $COMPOSE_CMD -f "$COMPOSE_FILE" pull openclaw
+        $COMPOSE_CMD -f "$COMPOSE_FILE" build ollama 2>/dev/null || log_warn "Image build skipped (already exists)"
+        log_info "Pulling Hermes Agent image..."
+        $COMPOSE_CMD -f "$COMPOSE_FILE" pull hermes-gateway hermes-chat
         log_info "Starting services..."
         $COMPOSE_CMD -f "$COMPOSE_FILE" up -d
-        
+
         wait_for_health "Ollama" "http://localhost:11434/api/tags" 60
-        
-        log_info "Pulling Gemma 4 (8B) model to Ollama..."
+
+        log_info "Pulling default model to Ollama..."
         $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T ollama ollama pull gemma4:8b 2>&1 || log_warn "Model pull may take time, continuing..."
-        
-        wait_for_health "OpenClaw" "http://localhost:18789/healthz" 30
-        
-        log_info "Configuring Ollama as OpenClaw provider..."
-        $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T openclaw sh -c 'openclaw onboard --non-interactive --auth-choice ollama --custom-base-url "http://ollama:11434" --accept-risk' 2>/dev/null || true
-        $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T openclaw sh -c 'openclaw config set gateway.bind lan' 2>/dev/null || true
-        $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T openclaw sh -c "openclaw config set agents.defaults.model '{\"primary\": \"ollama/gemma4:8b\"}'" 2>/dev/null || true
-        log_info "Restarting OpenClaw..."
-        $COMPOSE_CMD -f "$COMPOSE_FILE" restart openclaw
-        sleep 5
-        log_info "OpenClaw started!"
-        log_info "Gateway: http://localhost:18789"
+
+        wait_for_health "Hermes" "http://localhost:9119" 30
+
+        log_info "Hermes Agent started!"
+        log_info "Dashboard: http://localhost:9119"
         log_info "Ollama: http://localhost:11434"
-        log_info "Model: ollama/gemma4:8b"
+        echo ""
+        log_info "To chat via CLI:"
+        echo "  $COMPOSE_CMD exec hermes-chat sh -c '. /opt/hermes/.venv/bin/activate && hermes chat'"
         ;;
     down|stop)
         detect_runtime
         require_runtime
-        log_info "Stopping OpenClaw..."
+        log_info "Stopping Hermes..."
         $COMPOSE_CMD -f "$COMPOSE_FILE" down
         ;;
     restart)
@@ -271,41 +319,61 @@ case "${1:-help}" in
         require_runtime
         $COMPOSE_CMD -f "$COMPOSE_FILE" logs -f
         ;;
+    exec)
+        shift
+        if [ $# -eq 0 ]; then
+            log_error "Usage: $0 exec <command>"
+            exit 1
+        fi
+        detect_runtime
+        require_runtime
+        $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T hermes-chat sh -c '. /opt/hermes/.venv/bin/activate && exec "$@"' -- "$@"
+        ;;
+    chat)
+        shift
+        detect_runtime
+        require_runtime
+        $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T hermes-chat sh -c '. /opt/hermes/.venv/bin/activate && exec hermes chat -q "$1"' -- "${1:-}"
+        ;;
     status|ps)
         detect_runtime
         require_runtime
         echo ""
-        echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║         OpenClaw Status               ║${NC}"
-        echo -e "${CYAN}╠══════════════════════════════════════════╣${NC}"
+        echo -e "${CYAN}────────────────────────────────────────────${NC}"
+        echo -e "  Hermes Status"
+        echo -e "${CYAN}────────────────────────────────────────────${NC}"
         echo ""
         $COMPOSE_CMD -f "$COMPOSE_FILE" ps
         echo ""
-        echo -e "${CYAN}╠══════════════════════════════════════════╣${NC}"
-        echo -e "${CYAN}║         Health Checks                   ║${NC}"
-        echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
+        echo -e "${CYAN}────────────────────────────────────────────${NC}"
+        echo -e "  Health Checks"
+        echo -e "${CYAN}────────────────────────────────────────────${NC}"
         echo ""
-        
-        # Check Ollama
+
         if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
             echo -e "  ${GREEN}✓${NC} Ollama (localhost:11434)    - Running"
         else
             echo -e "  ${RED}✗${NC} Ollama (localhost:11434)    - Not responding"
         fi
-        
-        # Check OpenClaw
-        if curl -sf http://localhost:18789/healthz >/dev/null 2>&1; then
-            echo -e "  ${GREEN}✓${NC} OpenClaw (localhost:18789)  - Running"
+
+        if curl -sf http://localhost:9119 >/dev/null 2>&1; then
+            echo -e "  ${GREEN}✓${NC} Hermes (localhost:9119)     - Running"
         else
-            echo -e "  ${RED}✗${NC} OpenClaw (localhost:18789)  - Not responding"
+            echo -e "  ${RED}✗${NC} Hermes (localhost:9119)     - Not responding"
         fi
-        
+
         echo ""
         ;;
     build)
         detect_runtime
         require_runtime
-        log_info "Pulling OpenClaw image..."
+        log_info "Building images..."
+        $COMPOSE_CMD -f "$COMPOSE_FILE" build
+        ;;
+    pull)
+        detect_runtime
+        require_runtime
+        log_info "Pulling images..."
         $COMPOSE_CMD -f "$COMPOSE_FILE" pull
         ;;
     clean)
@@ -314,12 +382,6 @@ case "${1:-help}" in
         log_warn "Cleaning up..."
         $COMPOSE_CMD -f "$COMPOSE_FILE" down -v --remove-orphans 2>/dev/null || true
         ;;
-    pull)
-        detect_runtime
-        require_runtime
-        log_info "Pulling images..."
-        $COMPOSE_CMD -f "$COMPOSE_FILE" pull
-        ;;
     choose)
         choose_runtime
         echo ""
@@ -327,20 +389,23 @@ case "${1:-help}" in
         ;;
     help|--help|-h|"")
         echo ""
-        echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║         OpenClaw Runner Help          ║${NC}"
-        echo -e "${CYAN}╠══════════════════════════════════════════╣${NC}"
-        echo -e "${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}  ${GREEN}./run.sh start${NC}    Build & Start"
-        echo -e "${CYAN}║${NC}  ${GREEN}./run.sh down${NC}     Stop OpenClaw"
-        echo -e "${CYAN}║${NC}  ${GREEN}./run.sh restart${NC}  Restart"
-        echo -e "${CYAN}║${NC}  ${GREEN}./run.sh logs${NC}     View logs"
-        echo -e "${CYAN}║${NC}  ${GREEN}./run.sh status${NC}  Show status"
-        echo -e "${CYAN}║${NC}  ${GREEN}./run.sh build${NC}    Build image"
-        echo -e "${CYAN}║${NC}  ${GREEN}./run.sh clean${NC}    Clean volumes"
-        echo -e "${CYAN}║${NC}  ${GREEN}./run.sh choose${NC}   Choose runtime (podman/docker)"
-        echo -e "${CYAN}║${NC}"
-        echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
+        echo -e "${CYAN}────────────────────────────────────────────${NC}"
+        echo -e "  Hermes Runner Help"
+        echo -e "${CYAN}────────────────────────────────────────────${NC}"
+        echo ""
+        echo "  ${GREEN}./run.sh start${NC}           Build & Start services"
+        echo "  ${GREEN}./run.sh start docker${NC}     Start with Docker"
+        echo "  ${GREEN}./run.sh start podman${NC}     Start with Podman"
+        echo "  ${GREEN}./run.sh down${NC}            Stop Hermes"
+        echo "  ${GREEN}./run.sh restart${NC}         Restart"
+        echo "  ${GREEN}./run.sh logs${NC}            View logs"
+        echo "  ${GREEN}./run.sh status${NC}          Show service status"
+        echo "  ${GREEN}./run.sh chat${NC}            Open Hermes chat"
+        echo "  ${GREEN}./run.sh exec${NC}            Run command inside container"
+        echo "  ${GREEN}./run.sh build${NC}           Build images"
+        echo "  ${GREEN}./run.sh clean${NC}           Clean volumes"
+        echo ""
+        echo -e "${CYAN}────────────────────────────────────────────${NC}"
         echo ""
         ;;
     *)
