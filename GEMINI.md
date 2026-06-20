@@ -36,4 +36,4 @@
 - `docker-compose.yml` / `podman-compose.yml`: Deployment definitions.
 - `config/config.yaml`: Hermes agent configuration.
 - `config/SOUL.md`: Agent identity and core values.
-- `config/.env`: API keys and secrets.
+- `hermes-config/.env.hermes`: API keys and secrets.

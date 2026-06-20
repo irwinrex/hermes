@@ -3,8 +3,8 @@
 ## Deployment
 
 ```bash
-cp .env.example .env
-# Edit .env with ZEN_API_KEY
+cp sample.env.hermes hermes-config/.env.hermes
+# Edit hermes-config/.env.hermes with ZEN_API_KEY
 ./run.sh start
 ./run.sh status
 ```
@@ -42,7 +42,7 @@ docker compose exec hermes-chat sh -c '. /opt/hermes/.venv/bin/activate && herme
 ## Security
 
 - **Network Isolation**: Gateway binds to `127.0.0.1` by default.
-- **Secrets**: API keys stored in `config/.env`, never committed.
+- **Secrets**: API keys stored in `hermes-config/.env.hermes`, never committed.
 - **Least Privilege**: Containers run with `no-new-privileges`.
 
 ## Troubleshooting
@@ -50,5 +50,5 @@ docker compose exec hermes-chat sh -c '. /opt/hermes/.venv/bin/activate && herme
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `Connection Refused` | Gateway not running | Run `./run.sh status` |
-| `401 Unauthorized` | Invalid API key | Check ZEN_API_KEY in config/.env |
+| `401 Unauthorized` | Invalid API key | Check ZEN_API_KEY in hermes-config/.env.hermes |
 | Ollama not responding | Model not pulled | Wait for model download |

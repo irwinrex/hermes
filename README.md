@@ -12,17 +12,13 @@ Hermes Agent is an autonomous AI agent running locally via Docker/Podman with su
 
 ```bash
 # 1. Prepare environment
-cp .env.example .env
-# Edit .env and add your ZEN_API_KEY
+cp sample.env.hermes hermes-config/.env.hermes
+# Edit hermes-config/.env.hermes with your API keys
 
-# 2. Setup config directory
-mkdir -p config
-# Edit config/config.yaml as needed
-
-# 3. Launch services
+# 2. Launch services
 ./run.sh start
 
-# 4. Open dashboard
+# 3. Open dashboard
 open http://localhost:9119
 ```
 
@@ -40,9 +36,9 @@ open http://localhost:9119
 
 ## Configuration
 
-- `config/config.yaml` — Hermes agent settings
-- `config/.env` — API keys and secrets
-- `config/SOUL.md` — Agent personality and directives
-- `config/gemma4-Modelfile` — Local model configuration
+- `hermes-config/config.yaml` — Hermes agent settings
+- `hermes-config/.env.hermes` — API keys and secrets
+- `hermes-config/SOUL.md` — Agent personality and directives
+- `hermes-config/gemma4-Modelfile` — Local model configuration
 
-Data is stored in `./.hermes/` (local to this project).
+Data is stored in `./hermes-data/` (local to this project).

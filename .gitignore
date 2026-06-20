@@ -1,6 +1,5 @@
 .env
 .env.ollama
-hermes-config/.env
 hermes-config/.env.hermes
 hermes-data/
 node_modules/

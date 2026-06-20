@@ -244,13 +244,7 @@ check_env() {
             log_warn "hermes-config/.env.hermes created from hermes-config/sample.env.hermes"
         fi
     fi
-    if [ ! -f hermes-config/.env ]; then
-        if [ -f hermes-config/.env.hermes ]; then
-            cp hermes-config/.env.hermes hermes-config/.env
-            log_warn "hermes-config/.env created from hermes-config/.env.hermes"
-            log_warn "Edit hermes-config/.env.hermes and hermes-config/.env with your actual API keys"
-        fi
-    fi
+
 }
 
 setup_config() {
@@ -290,7 +284,7 @@ case "${1:-help}" in
         wait_for_health "Ollama" "http://localhost:11434/api/tags" 60
 
         log_info "Pulling default model to Ollama..."
-        $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T ollama ollama pull gemma4:8b 2>&1 || log_warn "Model pull may take time, continuing..."
+        $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T ollama ollama pull gemma4 2>&1 || log_warn "Model pull may take time, continuing..."
 
         wait_for_health "Hermes" "http://localhost:9119" 30
 
